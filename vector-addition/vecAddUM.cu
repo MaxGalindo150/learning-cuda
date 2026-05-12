@@ -1,3 +1,4 @@
+#include "../common/cuda_check.cuh"
 #include <cstdlib>
 #include <ctime>
 #include <cuda/cmath>
@@ -45,10 +46,13 @@ void unifiedMemExample(int vectorLength) {
   float *comparisonResult =
       static_cast<float *>(malloc(vectorLength * sizeof(float)));
 
+  cudaEvent_t start, stop;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
   // Use unified memory to allocate buffers
-  cudaMallocManaged(&A, vectorLength * sizeof(float));
-  cudaMallocManaged(&B, vectorLength * sizeof(float));
-  cudaMallocManaged(&C, vectorLength * sizeof(float));
+  CUDA_CHECK(cudaMallocManaged(&A, vectorLength * sizeof(float)));
+  CUDA_CHECK(cudaMallocManaged(&B, vectorLength * sizeof(float)));
+  CUDA_CHECK(cudaMallocManaged(&C, vectorLength * sizeof(float)));
 
   // Initialize vectors on the host
   initArray(A, vectorLength);
@@ -58,9 +62,20 @@ void unifiedMemExample(int vectorLength) {
   // accesible to the GPU
   int threads = 256;
   int blocks = cuda::ceil_div(vectorLength, threads);
+  CUDA_CHECK(cudaEventRecord(start, /*stream=*/0));
   vecAdd<<<blocks, threads>>>(A, B, C, vectorLength);
-  // Wait for the kernel to complete execution
-  cudaDeviceSynchronize();
+  CUDA_LAUNCH_CHECK();
+
+  CUDA_CHECK(cudaEventRecord(stop, 0));
+
+  CUDA_CHECK(cudaEventSynchronize(stop));
+
+  float kernelMs = 0.f;
+  CUDA_CHECK(cudaEventElapsedTime(&kernelMs, start, stop));
+  printf("Kernel time: %.3f ms\n", kernelMs);
+
+  CUDA_CHECK(cudaEventDestroy(start));
+  CUDA_CHECK(cudaEventDestroy(stop));
 
   // Perform computation serially on CPU for comparison
   serialVecAdd(A, B, comparisonResult, vectorLength);
@@ -73,9 +88,9 @@ void unifiedMemExample(int vectorLength) {
   }
 
   // Clean up
-  cudaFree(A);
-  cudaFree(B);
-  cudaFree(C);
+  CUDA_CHECK(cudaFree(A));
+  CUDA_CHECK(cudaFree(B));
+  CUDA_CHECK(cudaFree(C));
   free(comparisonResult);
 }
 
